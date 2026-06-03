@@ -283,7 +283,7 @@ The codebase is intentionally modular:
 - Add CSV/GeoJSON export for sales teams.
 - Add real Google Solar API buildingInsights support where coverage and cost make sense.
 
-## Public Repo Notes
+## Notes
 
 - This is an MVP/POC, not a production sales intelligence platform.
 - External API availability and rate limits can affect live results.
