@@ -12,7 +12,7 @@ The current demo focuses on France real-data screening and building-level analys
 - Scores buildings by rooftop solar opportunity.
 - Shows buildings on an interactive Leaflet map.
 - Explains each AI Lead Score with weighted components.
-- Works without a Google Solar API key by using PVGIS and mockable providers.
+- Uses Google Solar API `buildingInsights` when configured, with PVGIS/mock fallback when unavailable.
 
 ## Demo Highlights
 
@@ -86,7 +86,7 @@ database/
 | Open-Meteo Archive | Historical temperature and summer max temperature | Live API, no key required |
 | OpenStreetMap / Overpass | Building footprints | Live API when available |
 | OpenStreetMap Map API | Building fallback for sampled small bboxes | Live API when available |
-| Google Solar API | Future premium building-level solar integration | Optional placeholder |
+| Google Solar API | Building-level rooftop solar potential via `buildingInsights` | Optional live API key |
 | Panel Detection Provider | Existing solar panel detection | Mocked for MVP |
 
 External public APIs can be rate-limited or temporarily unavailable. The app is designed to degrade gracefully and label fallback data instead of failing the demo.
@@ -109,7 +109,9 @@ Building type priority:
 - Medium: residential, apartment, house.
 - Lower: unknown or low-confidence building type.
 
-For France, PVGIS-backed solar data is used when Google Solar API is not configured. Temperature context is also included in the scoring explanation.
+When `GOOGLE_SOLAR_API_KEY` is configured, the backend uses Google Solar API first and captures rooftop array area, annual PV output, sunshine hours, panel count, and data quality in the scoring metadata. If Google coverage, quota, or configuration fails for a building, the app falls back to PVGIS in France and mock estimates elsewhere.
+
+For France, temperature fit is also applied as a bounded score adjustment so strong solar regions with high heat risk are ranked more realistically.
 
 ## France Workflow
 
@@ -185,7 +187,7 @@ Copy `.env.example` to `.env`.
 | Variable | Purpose | Required |
 |---|---|---|
 | `DATABASE_URL` | Backend database connection string | Yes in non-Compose runs |
-| `GOOGLE_SOLAR_API_KEY` | Optional Google Solar API key | No |
+| `GOOGLE_SOLAR_API_KEY` | Optional Google Solar API key for live building-level insights | No |
 | `OVERPASS_URL` | Primary Overpass endpoint | No |
 | `OVERPASS_FALLBACK_URLS` | Comma-separated Overpass mirror list | No |
 | `OSM_MAP_API_URL` | OSM Map API fallback endpoint | No |
@@ -194,7 +196,7 @@ Copy `.env.example` to `.env`.
 | `FRANCE_WEATHER_YEAR` | Historical weather year used for ranking | No |
 | `VITE_API_BASE_URL` | Frontend backend URL | No |
 
-No API keys are hardcoded.
+No API keys are hardcoded. Keep `.env` local and out of Git. For public repos, restrict the Google API key in Google Cloud and rotate it if it was ever shared outside a private channel.
 
 ## Local Development Without Docker
 
@@ -236,6 +238,15 @@ Expected response:
 }
 ```
 
+With `GOOGLE_SOLAR_API_KEY` configured, the provider should be:
+
+```json
+{
+  "status": "ok",
+  "provider": "google_solar_hybrid"
+}
+```
+
 Check running containers:
 
 ```bash
@@ -259,7 +270,8 @@ docker compose run --rm frontend npm run build
 The codebase is intentionally modular:
 
 - `backend/app/services/solar_provider.py`
-  - `GoogleSolarProvider`: optional Google Solar API integration.
+  - `GoogleSolarProvider`: Google Solar API `buildingInsights` integration.
+  - `HybridSolarProvider`: tries Google first and falls back gracefully.
   - `FranceAwareSolarProvider`: PVGIS-backed provider for France.
   - `MockSolarProvider`: deterministic fallback.
 - `backend/app/services/france_ranking.py`
@@ -281,7 +293,7 @@ The codebase is intentionally modular:
 - Add Sentinel Hub or Copernicus satellite imagery support.
 - Add user accounts and saved sales campaigns.
 - Add CSV/GeoJSON export for sales teams.
-- Add real Google Solar API buildingInsights support where coverage and cost make sense.
+- Add Google Solar API `dataLayers` support for richer rooftop rasters where coverage and cost make sense.
 
 ## Notes
 

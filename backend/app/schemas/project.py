@@ -47,7 +47,7 @@ class ProjectRead(BaseModel):
 
 class AnalyzeBboxRequest(BaseModel):
     bbox: Bbox
-    limit: int = Field(default=220, ge=10, le=600)
+    limit: int = Field(default=220, ge=1, le=600)
 
 
 class AnalyzeBboxResponse(BaseModel):

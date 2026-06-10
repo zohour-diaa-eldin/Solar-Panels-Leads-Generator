@@ -18,6 +18,12 @@ class SolarPotential:
     annual_kwh: float | None
     provider: str
     notes: str
+    usable_roof_area_m2: float | None = None
+    annual_sunshine_hours: float | None = None
+    max_panel_count: int | None = None
+    panel_capacity_watts: float | None = None
+    annual_kwh_per_m2: float | None = None
+    data_quality: str = "estimated"
 
 
 class SolarProvider:
@@ -41,6 +47,8 @@ class MockSolarProvider(SolarProvider):
             annual_kwh=float(round(annual_kwh, 0)),
             provider="mock",
             notes="Mocked solar potential from roof area and location. Set GOOGLE_SOLAR_API_KEY for live lookup.",
+            usable_roof_area_m2=None,
+            data_quality="mock",
         )
 
 
@@ -59,30 +67,45 @@ class GoogleSolarProvider(SolarProvider):
             "requiredQuality": "LOW",
             "key": self.api_key,
         }
-        try:
-            async with httpx.AsyncClient(timeout=12) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                data = response.json()
-        except Exception as exc:  # noqa: BLE001 - live provider should degrade to deterministic scoring.
-            logger.warning("Google Solar lookup failed, using local estimate: %s", exc)
-            return await MockSolarProvider().get_building_potential(latitude, longitude, roof_area_m2)
+        async with httpx.AsyncClient(timeout=12) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
 
         solar = data.get("solarPotential", {})
+        if not solar:
+            raise ValueError("Google Solar response did not include solarPotential")
+
         max_area = float(solar.get("maxArrayAreaMeters2") or roof_area_m2 or 0)
+        annual_sunshine_hours = solar.get("maxSunshineHoursPerYear")
+        max_panels = solar.get("maxArrayPanelsCount")
+        panel_capacity_watts = solar.get("panelCapacityWatts")
         panel_configs = solar.get("solarPanelConfigs") or []
         annual_kwh = None
         if panel_configs:
-            annual_kwh = float(panel_configs[-1].get("yearlyEnergyDcKwh") or 0)
+            best_config = max(panel_configs, key=lambda item: float(item.get("yearlyEnergyDcKwh") or 0))
+            annual_kwh = float(best_config.get("yearlyEnergyDcKwh") or 0)
 
-        area_score = min(100, (max_area / max(roof_area_m2, 1)) * 85)
-        energy_score = min(100, ((annual_kwh or 0) / max(roof_area_m2 * 210, 1)) * 100) if annual_kwh else area_score
-        potential_score = round(max(35, min(100, area_score * 0.45 + energy_score * 0.55)), 1)
+        annual_kwh_per_m2 = annual_kwh / max(max_area, 1) if annual_kwh and max_area else None
+        area_score = scaled_score(max_area, low=70, high=360)
+        density_score = scaled_score(annual_kwh_per_m2, low=95, high=210) if annual_kwh_per_m2 else area_score
+        sunshine_score = (
+            scaled_score(float(annual_sunshine_hours), low=900, high=1900)
+            if annual_sunshine_hours
+            else density_score
+        )
+        potential_score = round(max(35, min(100, area_score * 0.15 + density_score * 0.55 + sunshine_score * 0.30)), 1)
         return SolarPotential(
             potential_score=float(potential_score),
             annual_kwh=float(round(annual_kwh, 0)) if annual_kwh else None,
             provider="google_solar",
-            notes="Google Solar API buildingInsights result.",
+            notes="Google Solar API buildingInsights result with rooftop area, sunshine, and panel configuration signals.",
+            usable_roof_area_m2=float(round(max_area, 1)) if max_area else None,
+            annual_sunshine_hours=float(round(float(annual_sunshine_hours), 1)) if annual_sunshine_hours else None,
+            max_panel_count=int(max_panels) if max_panels is not None else None,
+            panel_capacity_watts=float(panel_capacity_watts) if panel_capacity_watts is not None else None,
+            annual_kwh_per_m2=float(round(annual_kwh_per_m2, 1)) if annual_kwh_per_m2 else None,
+            data_quality="google_building_insights",
         )
 
 
@@ -115,10 +138,34 @@ class FranceAwareSolarProvider(SolarProvider):
             annual_kwh=float(round(annual_kwh, 0)) if annual_kwh is not None else None,
             provider=metrics.provider,
             notes=metrics.notes,
+            usable_roof_area_m2=None,
+            data_quality=metrics.data_quality,
         )
+
+
+class HybridSolarProvider(SolarProvider):
+    def __init__(self, settings: Settings):
+        self.google_provider = GoogleSolarProvider(settings.google_solar_api_key or "")
+        self.france_provider = FranceAwareSolarProvider(settings)
+
+    async def get_building_potential(self, latitude: float, longitude: float, roof_area_m2: float) -> SolarPotential:
+        try:
+            return await self.google_provider.get_building_potential(latitude, longitude, roof_area_m2)
+        except Exception as exc:  # noqa: BLE001 - Google coverage and API quotas vary by building.
+            logger.warning("Google Solar lookup failed; falling back to regional provider: %s", type(exc).__name__)
+            fallback = await self.france_provider.get_building_potential(latitude, longitude, roof_area_m2)
+            fallback.notes = f"{fallback.notes} Google Solar lookup unavailable for this building, so fallback data was used."
+            return fallback
 
 
 def get_solar_provider(settings: Settings) -> SolarProvider:
     if settings.google_solar_api_key:
-        return GoogleSolarProvider(settings.google_solar_api_key)
+        return HybridSolarProvider(settings)
     return FranceAwareSolarProvider(settings)
+
+
+def scaled_score(value: float | None, low: float, high: float) -> float:
+    if value is None:
+        return 55.0
+    score = (float(value) - low) / (high - low) * 100
+    return float(round(max(35, min(100, score)), 1))

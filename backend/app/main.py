@@ -8,6 +8,7 @@ from app.db import init_db
 from app.routes import buildings, france, projects
 
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, version="0.1.0")
@@ -32,5 +33,5 @@ def on_startup() -> None:
 
 @app.get("/health")
 def health() -> dict:
-    provider = "google" if settings.google_solar_api_key else "france_pvgis_plus_mock"
+    provider = "google_solar_hybrid" if settings.google_solar_api_key else "france_pvgis_plus_mock"
     return {"status": "ok", "provider": provider}

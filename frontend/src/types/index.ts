@@ -28,7 +28,18 @@ export interface ProjectCreateInput {
 export interface ScoringExplanation {
   weights: Record<string, number>;
   components: Record<string, number>;
+  adjustments?: Record<string, number>;
   provider_notes: Record<string, string>;
+  solar_provider?: {
+    provider?: string;
+    data_quality?: string;
+    annual_kwh?: number | null;
+    usable_roof_area_m2?: number | null;
+    annual_sunshine_hours?: number | null;
+    max_panel_count?: number | null;
+    panel_capacity_watts?: number | null;
+    annual_kwh_per_m2?: number | null;
+  };
   environment?: Record<string, unknown>;
 }
 

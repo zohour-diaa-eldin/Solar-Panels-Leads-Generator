@@ -12,7 +12,8 @@ const componentLabels: Record<string, string> = {
   usable_roof_area: "Usable roof area",
   no_existing_solar_panels: "No existing panels",
   building_type_priority: "Building priority",
-  accessibility_proximity: "Accessibility"
+  accessibility_proximity: "Accessibility",
+  temperature_fit: "Temperature fit"
 };
 
 export default function BuildingDetails({ building }: BuildingDetailsProps) {
@@ -28,6 +29,8 @@ export default function BuildingDetails({ building }: BuildingDetailsProps) {
 
   const props = building.properties;
   const components = props.scoring_explanation.components;
+  const solarProvider = props.scoring_explanation.solar_provider;
+  const temperatureAdjustment = props.scoring_explanation.adjustments?.temperature_adjustment_points;
   const environment = props.scoring_explanation.environment as
     | {
         average_annual_temp_c?: number | null;
@@ -54,6 +57,20 @@ export default function BuildingDetails({ building }: BuildingDetailsProps) {
         <Metric label="Roof area" value={`${formatter.format(props.usable_roof_area_m2)} m2`} />
         <Metric label="Building type" value={props.building_type} />
         <Metric label="Solar potential" value={`${formatter.format(props.estimated_solar_potential)}/100`} />
+        {solarProvider?.provider && (
+          <Metric
+            label="Solar data"
+            value={`${formatProviderName(solarProvider.provider)} · ${formatProviderName(
+              solarProvider.data_quality ?? "estimated"
+            )}`}
+          />
+        )}
+        {solarProvider?.annual_kwh !== undefined && solarProvider.annual_kwh !== null && (
+          <Metric label="Annual PV output" value={`${formatter.format(solarProvider.annual_kwh)} kWh`} />
+        )}
+        {solarProvider?.max_panel_count !== undefined && solarProvider.max_panel_count !== null && (
+          <Metric label="Panel capacity" value={`${solarProvider.max_panel_count} panels`} />
+        )}
         <Metric
           label="Existing panels"
           value={props.has_existing_panels ? "Detected" : "Not detected"}
@@ -64,6 +81,9 @@ export default function BuildingDetails({ building }: BuildingDetailsProps) {
         )}
         {environment?.heat_risk_score !== undefined && environment.heat_risk_score !== null && (
           <Metric label="Heat risk" value={`${formatter.format(environment.heat_risk_score)}/100`} />
+        )}
+        {temperatureAdjustment !== undefined && temperatureAdjustment !== 0 && (
+          <Metric label="Temp adjustment" value={`${temperatureAdjustment > 0 ? "+" : ""}${formatter.format(temperatureAdjustment)} pts`} />
         )}
       </div>
 
@@ -95,4 +115,12 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: "
       <strong>{value}</strong>
     </div>
   );
+}
+
+function formatProviderName(value: string) {
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
